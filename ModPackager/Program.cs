@@ -82,10 +82,6 @@ namespace ModPackager
             var masterKey = new byte[0];
             Console.WriteLine($"Building: {buildConfigPackage.SourceName} ({buildConfigPackage.DistributionName})");
 
-            if (packageConfig.EncryptFiles)
-            {
-                masterKey = CryptUtil.GenerateKey(KeyLength);
-            }
 
             var outPath = Path.Combine(args.OutPath, buildConfigPackage.DistributionName + ".mods");
             using var fs = File.Open(outPath, FileMode.Create, FileAccess.Write);
@@ -97,27 +93,34 @@ namespace ModPackager
                 EncryptionEnabled = packageConfig.EncryptFiles
             };
 
-            if (packageHeader.EncryptionEnabled)
+            if (packageConfig.EncryptFiles)
             {
                 packageHeader.KeyLength = KeyLength;
+                masterKey = CryptUtil.GenerateKey(KeyLength);
             }
 
             BinaryUtils.MarshalStruct(ms, packageHeader);
 
-            byte[] xorTable =
+            if (packageConfig.EncryptFiles)
             {
-                0x94, 0xce, 0xc3, 0xae, 0x73, 0xf9, 0xf1, 0xb9
-            };
+                byte[] xorTable =
+                {
+                    0x94, 0xce, 0xc3, 0xae, 0x73, 0xf9, 0xf1, 0xb9
+                };
 
-            for (var i = 0; i < masterKey.Length; i++)
-            {
-                ms.WriteByte((byte)(masterKey[i] ^ xorTable[i % xorTable.Length]));
+                for (var i = 0; i < masterKey.Length; i++)
+                {
+                    ms.WriteByte((byte)(masterKey[i] ^ xorTable[i % xorTable.Length]));
+                }
             }
 
             using (var zipFile = new ZipFile())
             {
-                zipFile.Encryption = EncryptionAlgorithm.WinZipAes256;
-                zipFile.Password = Encoding.ASCII.GetString(masterKey);
+                if (packageConfig.EncryptFiles)
+                {
+                    zipFile.Encryption = EncryptionAlgorithm.WinZipAes256;
+                    zipFile.Password = Encoding.ASCII.GetString(masterKey);
+                }
 
                 foreach (var packageConfigEntry in packageConfig.Entries)
                 {
