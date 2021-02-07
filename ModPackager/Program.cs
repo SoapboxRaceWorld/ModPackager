@@ -54,13 +54,16 @@ namespace ModPackager
 
                 foreach (var buildConfigPackage in buildConfig.Packages)
                 {
-                    var outPath = Path.Combine(args.OutPath, buildConfigPackage.DistributionName + ".mods");
+                    var distributionFileName = buildConfigPackage.DistributionName + ".mods";
+                    var outPath = Path.Combine(args.OutPath, distributionFileName);
                     var checksum = CryptUtil.SHA1File(outPath);
+                    var size = new FileInfo(outPath).Length;
 
                     buildIndex.Entries.Add(new BuildIndexEntry
                     {
                         Checksum = checksum,
-                        Name = buildConfigPackage.DistributionName + ".mods"
+                        Name = distributionFileName,
+                        Size = size
                     });
                 }
 

@@ -120,6 +120,12 @@ namespace ModPackager
         /// </summary>
         [JsonProperty]
         public string Checksum { get; set; }
+        
+        /// <summary>
+        /// The size of the package.
+        /// </summary>
+        [JsonProperty]
+        public long Size { get; set; }
     }
 
     /// <summary>
