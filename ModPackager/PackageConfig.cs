@@ -53,7 +53,7 @@ namespace ModPackager
     internal class PackageConfig
     {
         /// <summary>
-        /// Whether files should be encrypted or not.
+        /// Whether the package should be encrypted.
         /// </summary>
         [JsonProperty(Required = Required.Always, PropertyName = "encrypt_files")]
         public bool EncryptFiles { get; set; }
@@ -63,6 +63,12 @@ namespace ModPackager
         /// </summary>
         [JsonProperty(Required = Required.Always, PropertyName = "entries")]
         public List<PackageEntry> Entries { get; set; }
+        
+        /// <summary>
+        /// Whether the package should automatically be split into one package per root folder.
+        /// </summary>
+        [JsonProperty(Required = Required.Always, PropertyName = "auto_split")]
+        public bool AutoSplit { get; set; }
     }
 
     /// <summary>
