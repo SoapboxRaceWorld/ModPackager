@@ -85,7 +85,6 @@ namespace ModPackager
 
             var outPath = Path.Combine(args.OutPath, buildConfigPackage.DistributionName + ".mods");
             using var fs = File.Open(outPath, FileMode.Create, FileAccess.Write);
-            using var ms = new MemoryStream();
             var packageHeader = new PackageHeader
             {
                 Magic = 0x4459495A,
@@ -99,7 +98,7 @@ namespace ModPackager
                 masterKey = CryptUtil.GenerateKey(KeyLength);
             }
 
-            BinaryUtils.MarshalStruct(ms, packageHeader);
+            BinaryUtils.MarshalStruct(fs, packageHeader);
 
             if (packageConfig.EncryptFiles)
             {
@@ -110,7 +109,7 @@ namespace ModPackager
 
                 for (var i = 0; i < masterKey.Length; i++)
                 {
-                    ms.WriteByte((byte)(masterKey[i] ^ xorTable[i % xorTable.Length]));
+                    fs.WriteByte((byte)(masterKey[i] ^ xorTable[i % xorTable.Length]));
                 }
             }
 
@@ -129,12 +128,8 @@ namespace ModPackager
 
                 Console.WriteLine($"Saving: {buildConfigPackage.SourceName} ({buildConfigPackage.DistributionName})");
 
-                zipFile.Save(ms);
+                zipFile.Save(fs);
             }
-
-            Console.WriteLine($"Flushing: {buildConfigPackage.SourceName} ({buildConfigPackage.DistributionName}) -> {outPath}");
-            ms.Position = 0;
-            ms.CopyTo(fs);
         }
 
         private static void ProcessPackageEntry(ProgramArgs args, PackageEntry packageConfigEntry, BuildConfigPackage buildConfigPackage,
