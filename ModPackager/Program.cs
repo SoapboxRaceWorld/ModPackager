@@ -1,9 +1,12 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
+using System.Security.Cryptography;
 using System.Text;
 using CommandLine;
 using Ionic.Zip;
+using Newtonsoft.Json;
 
 namespace ModPackager
 {
@@ -39,11 +42,40 @@ namespace ModPackager
                 throw new Exception($"Could not find build config file. Looking for: {configPath}");
             }
 
+            var configDir = Path.GetDirectoryName(configPath) ?? "";
             var buildConfig = Serialization.Deserialize<BuildConfig>(File.ReadAllText(configPath));
+            var pkgCache = new Dictionary<string, string>();
+            var cachePath = Path.Combine(configDir, ".pkg-cache.json");
+
+            if (File.Exists(cachePath))
+            {
+                pkgCache = JsonConvert.DeserializeObject<Dictionary<string, string>>(File.ReadAllText(cachePath));
+            }
 
             foreach (var buildConfigPackage in buildConfig.Packages)
             {
-                BuildPackage(args, buildConfigPackage);
+                var packageBasePath = GetPackageBasePath(args, buildConfigPackage);
+                Console.WriteLine("Checking package '{0}' to see if we need to update it...", buildConfigPackage.SourceName);
+                var packageDataChecksum = DirectoryContentsChecksum(packageBasePath);
+                if (!pkgCache.TryGetValue(buildConfigPackage.SourceName, out var currentHash) ||
+                    !string.Equals(currentHash, packageDataChecksum))
+                {
+                    pkgCache[buildConfigPackage.SourceName] = packageDataChecksum;
+                    if (currentHash == null)
+                    {
+                        Console.WriteLine("New package '{0}' added to cache", buildConfigPackage.SourceName);
+                    }
+                    else
+                    {
+                        Console.WriteLine("Package '{0}' changed: old SHA1 checksum was {1}, now it is {2}", buildConfigPackage.SourceName, currentHash, packageDataChecksum);
+                    }
+
+                    BuildPackage(args, buildConfigPackage);
+                }
+                else
+                {
+                    Console.WriteLine("Package '{0}' was not changed, so we're not recompiling it", buildConfigPackage.SourceName);
+                }
             }
 
             if (buildConfig.GenerateIndex)
@@ -69,11 +101,13 @@ namespace ModPackager
 
                 File.WriteAllText(Path.Combine(args.OutPath, "index.json"), Serialization.Serialize(buildIndex));
             }
+            
+            File.WriteAllText(cachePath, Serialization.Serialize(pkgCache));
         }
 
         private static void BuildPackage(ProgramArgs args, BuildConfigPackage buildConfigPackage)
         {
-            var packageBasePath = Path.Combine(Path.GetDirectoryName(args.BuildConfigPath) ?? "", "src", buildConfigPackage.SourceName);
+            var packageBasePath = GetPackageBasePath(args, buildConfigPackage);
             var packageConfigPath = Path.Combine(packageBasePath, "config.json");
 
             if (!File.Exists(packageConfigPath))
@@ -133,6 +167,11 @@ namespace ModPackager
 
                 zipFile.Save(fs);
             }
+        }
+
+        private static string GetPackageBasePath(ProgramArgs args, BuildConfigPackage buildConfigPackage)
+        {
+            return Path.Combine(Path.GetDirectoryName(args.BuildConfigPath) ?? "", "src", buildConfigPackage.SourceName);
         }
 
         private static void ProcessPackageEntry(ProgramArgs args, PackageEntry packageConfigEntry, BuildConfigPackage buildConfigPackage,
@@ -196,6 +235,35 @@ namespace ModPackager
             Console.WriteLine($"Read files from {directoryPath}...");
 
             zipFile.AddDirectory(directoryPath, packageConfigEntry.GamePath);
+        }
+
+        private static string DirectoryContentsChecksum(string directory)
+        {
+            // assuming you want to include nested folders
+            var files = Directory.GetFiles(directory, "*.*", SearchOption.AllDirectories)
+                .OrderBy(p => p).ToList();
+
+            if (files.Count <= 0) return string.Empty;
+            var md5 = MD5.Create();
+
+            for (var i = 0; i < files.Count; i++)
+            {
+                var file = files[i];
+
+                // hash path
+                var relativePath = file[(directory.Length + 1)..];
+                var pathBytes = Encoding.UTF8.GetBytes(relativePath.ToLower());
+                md5.TransformBlock(pathBytes, 0, pathBytes.Length, pathBytes, 0);
+
+                // hash contents
+                var contentBytes = File.ReadAllBytes(file);
+                if (i == files.Count - 1)
+                    md5.TransformFinalBlock(contentBytes, 0, contentBytes.Length);
+                else
+                    md5.TransformBlock(contentBytes, 0, contentBytes.Length, contentBytes, 0);
+            }
+
+            return BitConverter.ToString(md5.Hash).Replace("-", "").ToLower();
         }
     }
 }
