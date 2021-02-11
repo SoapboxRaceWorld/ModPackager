@@ -65,9 +65,11 @@ namespace ModPackager
                 var packageConfigPath = Path.Combine(packageBasePath, "config.json");
                 if (!File.Exists(packageConfigPath))
                 {
-                    Console.WriteLine("ERROR: Could not find config for package '{0}'. Looked for: {1}", buildConfigPackage.SourceName, packageConfigPath);
+                    Console.WriteLine("ERROR: Could not find config for package '{0}'. Looked for: {1}",
+                        buildConfigPackage.SourceName, packageConfigPath);
                     return;
                 }
+
                 var packageConfig =
                     Serialization.Deserialize<PackageConfig>(
                         File.ReadAllText(packageConfigPath));
@@ -77,31 +79,38 @@ namespace ModPackager
 
                     if (packageConfig.Entries.Any(e => !string.IsNullOrEmpty(Path.GetDirectoryName(e.GamePath))))
                     {
-                        Console.WriteLine("ERROR: Auto-split does not support this configuration due to non-root entries.");
+                        Console.WriteLine(
+                            "ERROR: Auto-split does not support this configuration due to non-root entries.");
                         return;
                     }
-                    
+
                     var folderEntries = packageConfig.Entries.FindAll(e => e.Type == PackageEntryType.Directory);
                     var fileEntries = packageConfig.Entries.FindAll(e => e.Type == PackageEntryType.File);
 
                     // Compile derived packages from directories
                     foreach (var folderEntry in folderEntries)
                     {
-                        Console.WriteLine("Compiling auto-generated package for folder: '{0}' (game: {1}) ...", folderEntry.LocalPath, folderEntry.GamePath);
-                        var tmpBuildPkg = new BuildConfigPackage { SourceName = folderEntry.GamePath, DistributionName = folderEntry.GamePath};
-                        CheckAndCompilePackage(args, tmpBuildPkg, packageBasePath, pkgCache, new PackageConfig
-                        {
-                            Entries = new List<PackageEntry> { folderEntry },
-                            AutoSplit = false,
-                            EncryptFiles = packageConfig.EncryptFiles
-                        });
+                        Console.WriteLine("Compiling auto-generated package for folder: '{0}' (game: {1}) ...",
+                            folderEntry.LocalPath, folderEntry.GamePath);
+                        var tmpBuildPkg = new BuildConfigPackage
+                            {SourceName = folderEntry.GamePath, DistributionName = folderEntry.GamePath};
+                        CheckAndCompilePackage(args, tmpBuildPkg, Path.Combine(packageBasePath, folderEntry.LocalPath),
+                            pkgCache, new PackageConfig
+                            {
+                                Entries = new List<PackageEntry>
+                                {
+                                    new PackageEntry { LocalPath = "", GamePath = folderEntry.GamePath, Type = PackageEntryType.Directory }
+                                },
+                                AutoSplit = false,
+                                EncryptFiles = packageConfig.EncryptFiles
+                            });
                         builtPackageList.Add(tmpBuildPkg);
                     }
 
                     if (fileEntries.Count > 0)
                     {
                         Console.WriteLine("Compiling auto-generated root package...");
-                        var tmpRootPackage = new BuildConfigPackage { SourceName = "root", DistributionName = "root" };
+                        var tmpRootPackage = new BuildConfigPackage {SourceName = "root", DistributionName = "root"};
                         CheckAndCompilePackage(args, tmpRootPackage, packageBasePath, pkgCache, new PackageConfig
                         {
                             Entries = fileEntries,
@@ -142,14 +151,15 @@ namespace ModPackager
 
                 File.WriteAllText(Path.Combine(args.OutPath, "index.json"), Serialization.Serialize(buildIndex));
             }
-            
+
             File.WriteAllText(cachePath, Serialization.Serialize(pkgCache));
         }
 
         private static void CheckAndCompilePackage(ProgramArgs args, BuildConfigPackage buildConfigPackage,
             string packageBasePath, Dictionary<string, string> pkgCache, PackageConfig packageConfig)
         {
-            Console.WriteLine("Checking package '{0}' to see if we need to update it...", buildConfigPackage.SourceName);
+            Console.WriteLine("Checking package '{0}' to see if we need to update it...",
+                buildConfigPackage.SourceName);
             var packageDataChecksum = DirectoryContentsChecksum(packageBasePath);
             if (!pkgCache.TryGetValue(buildConfigPackage.SourceName, out var currentHash) ||
                 !string.Equals(currentHash, packageDataChecksum))
@@ -169,7 +179,8 @@ namespace ModPackager
             }
             else
             {
-                Console.WriteLine("Package '{0}' was not changed, so we're not recompiling it", buildConfigPackage.SourceName);
+                Console.WriteLine("Package '{0}' was not changed, so we're not recompiling it",
+                    buildConfigPackage.SourceName);
             }
         }
 
@@ -205,7 +216,7 @@ namespace ModPackager
 
                 for (var i = 0; i < masterKey.Length; i++)
                 {
-                    fs.WriteByte((byte)(masterKey[i] ^ xorTable[i % xorTable.Length]));
+                    fs.WriteByte((byte) (masterKey[i] ^ xorTable[i % xorTable.Length]));
                 }
             }
 
@@ -230,7 +241,8 @@ namespace ModPackager
 
         private static string GetPackageBasePath(ProgramArgs args, BuildConfigPackage buildConfigPackage)
         {
-            return Path.Combine(Path.GetDirectoryName(args.BuildConfigPath) ?? "", "src", buildConfigPackage.SourceName);
+            return Path.Combine(Path.GetDirectoryName(args.BuildConfigPath) ?? "", "src",
+                buildConfigPackage.SourceName);
         }
 
         private static void ProcessPackageEntry(PackageEntry packageConfigEntry, BuildConfigPackage buildConfigPackage,
@@ -288,7 +300,8 @@ namespace ModPackager
 
             if (!Directory.Exists(directoryPath))
             {
-                throw new Exception($"Package {buildConfigPackage.SourceName}: Directory {directoryPath} does not exist");
+                throw new Exception(
+                    $"Package {buildConfigPackage.SourceName}: Directory {directoryPath} does not exist");
             }
 
             Console.WriteLine($"Read files from {directoryPath}...");
