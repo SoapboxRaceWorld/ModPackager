@@ -57,7 +57,7 @@ namespace ModPackager
                 pkgCache = JsonConvert.DeserializeObject<Dictionary<string, string>>(File.ReadAllText(cachePath));
             }
 
-            var builtPackageList = new List<BuildConfigPackage>();
+            var buildPackageList = new List<BuildConfigPackage>();
 
             foreach (var buildConfigPackage in buildConfig.Packages)
             {
@@ -73,59 +73,31 @@ namespace ModPackager
                 var packageConfig =
                     Serialization.Deserialize<PackageConfig>(
                         File.ReadAllText(packageConfigPath));
-                if (packageConfig.AutoSplit)
+                if (packageConfig.AutoSplitMode == PackageAutoSplitMode.None)
                 {
-                    Console.WriteLine("Compiling '{0}' in auto-split mode...", buildConfigPackage.SourceName);
-
-                    if (packageConfig.Entries.Any(e => !string.IsNullOrEmpty(Path.GetDirectoryName(e.GamePath))))
-                    {
-                        Console.WriteLine(
-                            "ERROR: Auto-split does not support this configuration due to non-root entries.");
-                        return;
-                    }
-
-                    var folderEntries = packageConfig.Entries.FindAll(e => e.Type == PackageEntryType.Directory);
-                    var fileEntries = packageConfig.Entries.FindAll(e => e.Type == PackageEntryType.File);
-
-                    // Compile derived packages from directories
-                    foreach (var folderEntry in folderEntries)
-                    {
-                        Console.WriteLine("Compiling auto-generated package for folder: '{0}' (game: {1}) ...",
-                            folderEntry.LocalPath, folderEntry.GamePath);
-                        var tmpBuildPkg = new BuildConfigPackage
-                            {SourceName = folderEntry.GamePath, DistributionName = folderEntry.GamePath};
-                        CheckAndCompilePackage(args, tmpBuildPkg, Path.Combine(packageBasePath, folderEntry.LocalPath),
-                            pkgCache, new PackageConfig
-                            {
-                                Entries = new List<PackageEntry>
-                                {
-                                    new PackageEntry { LocalPath = "", GamePath = folderEntry.GamePath, Type = PackageEntryType.Directory }
-                                },
-                                AutoSplit = false,
-                                EncryptFiles = packageConfig.EncryptFiles
-                            });
-                        builtPackageList.Add(tmpBuildPkg);
-                    }
-
-                    if (fileEntries.Count > 0)
-                    {
-                        Console.WriteLine("Compiling auto-generated root package...");
-                        var tmpRootPackage = new BuildConfigPackage {SourceName = "root", DistributionName = "root"};
-                        CheckAndCompilePackage(args, tmpRootPackage, packageBasePath, pkgCache, new PackageConfig
-                        {
-                            Entries = fileEntries,
-                            AutoSplit = false,
-                            EncryptFiles = packageConfig.EncryptFiles
-                        });
-                        builtPackageList.Add(tmpRootPackage);
-                    }
+                    Console.WriteLine("Compiling '{0}' in single-file mode...", buildConfigPackage.SourceName);
+                    buildConfigPackage.Package = packageConfig;
+                    buildPackageList.Add(buildConfigPackage);
                 }
                 else
                 {
-                    Console.WriteLine("Compiling '{0}' in single-file mode...", buildConfigPackage.SourceName);
-                    CheckAndCompilePackage(args, buildConfigPackage, packageBasePath, pkgCache, packageConfig);
-                    builtPackageList.Add(buildConfigPackage);
+                    Console.WriteLine("Compiling '{0}' in auto-split mode...", buildConfigPackage.SourceName);
+                    buildPackageList.AddRange(AutoGenerateSplitPackages(packageBasePath, packageConfig));
                 }
+            }
+
+            Console.WriteLine("Packages to check ({0}):", buildPackageList.Count);
+            for (var index = 0; index < buildPackageList.Count; index++)
+            {
+                var package = buildPackageList[index];
+                Console.WriteLine("Package {0}: {1} / {2} ({3} entries)", index+1, package.SourceName, package.DistributionName, package.Package.Entries.Count);
+            }
+
+            foreach (var packageToBuild in buildPackageList)
+            {
+                Console.WriteLine("Building: {0}", packageToBuild.SourceName);
+                CheckAndCompilePackage(args, packageToBuild, GetPackageBasePath(args, packageToBuild), pkgCache,
+                    packageToBuild.Package);
             }
 
             if (buildConfig.GenerateIndex)
@@ -134,7 +106,7 @@ namespace ModPackager
                 buildIndex.BuiltAt = DateTime.Now;
                 buildIndex.Entries = new List<BuildIndexEntry>();
 
-                foreach (var buildConfigPackage in builtPackageList)
+                foreach (var buildConfigPackage in buildPackageList)
                 {
                     var distributionFileName = buildConfigPackage.DistributionName + ".mods";
                     var outPath = Path.Combine(args.OutPath, distributionFileName);
@@ -153,6 +125,112 @@ namespace ModPackager
             }
 
             File.WriteAllText(cachePath, Serialization.Serialize(pkgCache));
+        }
+
+        private static List<BuildConfigPackage> AutoGenerateSplitPackages(string basePath, PackageConfig packageConfig)
+        {
+            if (packageConfig.Entries.Any(e => !string.IsNullOrEmpty(Path.GetDirectoryName(e.GamePath))))
+            {
+                throw new Exception("Auto-split failed due to non-root entries in package configuration.");
+            }
+
+            var folderEntries = packageConfig.Entries.FindAll(e => e.Type == PackageEntryType.Directory);
+            var fileEntries = packageConfig.Entries.FindAll(e => e.Type == PackageEntryType.File);
+            var finalList = new List<BuildConfigPackage>();
+
+            // Compile derived packages from directories
+            foreach (var folderEntry in folderEntries)
+            {
+                if (packageConfig.AutoSplitMode == PackageAutoSplitMode.Aggressive)
+                {
+                    finalList.AddRange(Directory
+                        .GetDirectories(Path.Combine(basePath, folderEntry.LocalPath), "*", SearchOption.AllDirectories)
+                        .Select(p =>
+                        {
+                            var relPath = Path.GetRelativePath(basePath, p);
+                            return new BuildConfigPackage
+                            {
+                                SourceName = Path.Combine(Path.GetFileName(basePath)!, relPath),
+                                DistributionName = relPath.Replace(Path.DirectorySeparatorChar, '_').Replace('.', '_'),
+                                Package = new PackageConfig
+                                {
+                                    Entries = new List<PackageEntry>
+                                    {
+                                        new PackageEntry
+                                        {
+                                            LocalPath = "",
+                                            GamePath = relPath,
+                                            Type = PackageEntryType.Directory
+                                        }
+                                    }
+                                }
+                            };
+                        }));
+                    var rootFiles = Directory.GetFiles(Path.Combine(basePath, folderEntry.LocalPath));
+                    if (rootFiles.Length > 0)
+                    {
+                        finalList.Add(new BuildConfigPackage
+                        {
+                            SourceName = Path.Combine(Path.GetFileName(basePath)!, folderEntry.GamePath),
+                            DistributionName = folderEntry.GamePath,
+                            Package =
+                                new PackageConfig
+                                {
+                                    Entries = rootFiles.Select(f => new PackageEntry
+                                    {
+                                        LocalPath = Path.GetFileName(f),
+                                        GamePath = Path.GetRelativePath(basePath, f),
+                                        Type = PackageEntryType.File
+                                    }).ToList(),
+                                    AutoSplitMode = PackageAutoSplitMode.None,
+                                    EncryptFiles = packageConfig.EncryptFiles
+                                }
+                        });
+                    }
+                }
+                else
+                {
+                    var tmpBuildPkg = new BuildConfigPackage
+                    {
+                        SourceName = folderEntry.GamePath,
+                        DistributionName = folderEntry.GamePath,
+                        Package =
+                            new PackageConfig
+                            {
+                                Entries = new List<PackageEntry>
+                                {
+                                    new PackageEntry
+                                    {
+                                        LocalPath = "", GamePath = folderEntry.GamePath,
+                                        Type = PackageEntryType.Directory
+                                    }
+                                },
+                                AutoSplitMode = PackageAutoSplitMode.None,
+                                EncryptFiles = packageConfig.EncryptFiles
+                            }
+                    };
+
+                    finalList.Add(tmpBuildPkg);
+                }
+            }
+
+            if (fileEntries.Count > 0)
+            {
+                var tmpRootPackage = new BuildConfigPackage
+                {
+                    SourceName = "root",
+                    DistributionName = "root",
+                    Package = new PackageConfig
+                    {
+                        Entries = fileEntries,
+                        AutoSplitMode = PackageAutoSplitMode.None,
+                        EncryptFiles = packageConfig.EncryptFiles
+                    }
+                };
+                finalList.Add(tmpRootPackage);
+            }
+
+            return finalList;
         }
 
         private static void CheckAndCompilePackage(ProgramArgs args, BuildConfigPackage buildConfigPackage,

@@ -19,6 +19,27 @@ namespace ModPackager
         /// </summary>
         Directory
     }
+    
+    /// <summary>
+    /// Package auto-split modes
+    /// </summary>
+    internal enum PackageAutoSplitMode
+    {
+        /// <summary>
+        /// No auto-splitting is done.
+        /// </summary>
+        None,
+        
+        /// <summary>
+        /// A package is generated for every top-level directory.
+        /// </summary>
+        Base,
+        
+        /// <summary>
+        /// A package is generated for every directory in the full directory tree.
+        /// </summary>
+        Aggressive
+    }
 
     /// <summary>
     /// A package entry. Entries contain metadata that is
@@ -63,12 +84,12 @@ namespace ModPackager
         /// </summary>
         [JsonProperty(Required = Required.Always, PropertyName = "entries")]
         public List<PackageEntry> Entries { get; set; }
-        
+
         /// <summary>
-        /// Whether the package should automatically be split into one package per root folder.
+        /// The auto-splitting mode.
         /// </summary>
-        [JsonProperty(Required = Required.Always, PropertyName = "auto_split")]
-        public bool AutoSplit { get; set; }
+        [JsonProperty(PropertyName = "auto_split_mode")]
+        public PackageAutoSplitMode AutoSplitMode { get; set; } = PackageAutoSplitMode.None;
     }
 
     /// <summary>
@@ -88,6 +109,8 @@ namespace ModPackager
         /// </summary>
         [JsonProperty(Required = Required.Always, PropertyName = "distribution_name")]
         public string DistributionName { get; set; }
+
+        [JsonIgnore] public PackageConfig Package { get; set; } = null;
     }
 
     /// <summary>
