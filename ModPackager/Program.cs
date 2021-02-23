@@ -90,12 +90,12 @@ namespace ModPackager
             for (var index = 0; index < buildPackageList.Count; index++)
             {
                 var package = buildPackageList[index];
-                Console.WriteLine("Package {0}: {1} / {2} ({3} entries)", index+1, package.SourceName, package.DistributionName, package.Package.Entries.Count);
+                Console.WriteLine("Package {0}: {1} / {2} ({3} entries)", index + 1, package.SourceName,
+                    package.DistributionName, package.Package.Entries.Count);
             }
 
             foreach (var packageToBuild in buildPackageList)
             {
-                Console.WriteLine("Building: {0}", packageToBuild.SourceName);
                 CheckAndCompilePackage(args, packageToBuild, GetPackageBasePath(args, packageToBuild), pkgCache,
                     packageToBuild.Package);
             }
@@ -154,6 +154,7 @@ namespace ModPackager
                                 DistributionName = relPath.Replace(Path.DirectorySeparatorChar, '_').Replace('.', '_'),
                                 Package = new PackageConfig
                                 {
+                                    EncryptFiles = packageConfig.EncryptFiles,
                                     Entries = new List<PackageEntry>
                                     {
                                         new PackageEntry
@@ -236,37 +237,29 @@ namespace ModPackager
         private static void CheckAndCompilePackage(ProgramArgs args, BuildConfigPackage buildConfigPackage,
             string packageBasePath, Dictionary<string, string> pkgCache, PackageConfig packageConfig)
         {
-            Console.WriteLine("Checking package '{0}' to see if we need to update it...",
-                buildConfigPackage.SourceName);
-            var packageDataChecksum = DirectoryContentsChecksum(packageBasePath);
-            if (!pkgCache.TryGetValue(buildConfigPackage.SourceName, out var currentHash) ||
-                !string.Equals(currentHash, packageDataChecksum))
-            {
-                pkgCache[buildConfigPackage.SourceName] = packageDataChecksum;
-                if (currentHash == null)
-                {
-                    Console.WriteLine("New package '{0}' added to cache", buildConfigPackage.SourceName);
-                }
-                else
-                {
-                    Console.WriteLine("Package '{0}' changed: old SHA1 checksum was {1}, now it is {2}",
-                        buildConfigPackage.SourceName, currentHash, packageDataChecksum);
-                }
-
-                BuildPackage(args, buildConfigPackage, packageConfig, packageBasePath);
-            }
-            else
-            {
-                Console.WriteLine("Package '{0}' was not changed, so we're not recompiling it",
-                    buildConfigPackage.SourceName);
-            }
+            var packageDataChecksum = DirectoryContentsChecksum(packageBasePath,
+                packageConfig.Entries.Any(e => e.Type == PackageEntryType.Directory));
+            if (pkgCache.TryGetValue(buildConfigPackage.SourceName, out var currentHash) &&
+                string.Equals(currentHash, packageDataChecksum)) return;
+            // if (currentHash == null)
+            // {
+            //     Console.WriteLine("New package '{0}' added to cache", buildConfigPackage.SourceName);
+            // }
+            // else
+            // {
+            //     Console.WriteLine("Package '{0}' changed: old SHA1 checksum was {1}, now it is {2}",
+            //         buildConfigPackage.SourceName, currentHash, packageDataChecksum);
+            // }
+            Console.WriteLine("Building package '{0}'", buildConfigPackage.SourceName);
+            pkgCache[buildConfigPackage.SourceName] = packageDataChecksum;
+            BuildPackage(args, buildConfigPackage, packageConfig, packageBasePath);
         }
 
         private static void BuildPackage(ProgramArgs args, BuildConfigPackage buildConfigPackage,
             PackageConfig packageConfig, string packageBasePath)
         {
             var masterKey = new byte[0];
-            Console.WriteLine($"Building: {buildConfigPackage.SourceName} ({buildConfigPackage.DistributionName})");
+            // Console.WriteLine($"Building: {buildConfigPackage.SourceName} ({buildConfigPackage.DistributionName})");
 
             var outPath = Path.Combine(args.OutPath, buildConfigPackage.DistributionName + ".mods");
             using var fs = File.Open(outPath, FileMode.Create, FileAccess.Write);
@@ -298,23 +291,21 @@ namespace ModPackager
                 }
             }
 
-            using (var zipFile = new ZipFile())
+            using var zipFile = new ZipFile();
+            if (packageConfig.EncryptFiles)
             {
-                if (packageConfig.EncryptFiles)
-                {
-                    zipFile.Encryption = EncryptionAlgorithm.WinZipAes256;
-                    zipFile.Password = Encoding.ASCII.GetString(masterKey);
-                }
-
-                foreach (var packageConfigEntry in packageConfig.Entries)
-                {
-                    ProcessPackageEntry(packageConfigEntry, buildConfigPackage, zipFile, packageBasePath);
-                }
-
-                Console.WriteLine($"Saving: {buildConfigPackage.SourceName} ({buildConfigPackage.DistributionName})");
-
-                zipFile.Save(fs);
+                zipFile.Encryption = EncryptionAlgorithm.WinZipAes256;
+                zipFile.Password = Encoding.ASCII.GetString(masterKey);
             }
+
+            foreach (var packageConfigEntry in packageConfig.Entries)
+            {
+                ProcessPackageEntry(packageConfigEntry, buildConfigPackage, zipFile, packageBasePath);
+            }
+
+            // Console.WriteLine($"Saving: {buildConfigPackage.SourceName} ({buildConfigPackage.DistributionName})");
+
+            zipFile.Save(fs);
         }
 
         private static string GetPackageBasePath(ProgramArgs args, BuildConfigPackage buildConfigPackage)
@@ -382,15 +373,16 @@ namespace ModPackager
                     $"Package {buildConfigPackage.SourceName}: Directory {directoryPath} does not exist");
             }
 
-            Console.WriteLine($"Read files from {directoryPath}...");
+            // Console.WriteLine($"Read files from {directoryPath}...");
 
             zipFile.AddDirectory(directoryPath, packageConfigEntry.GamePath);
         }
 
-        private static string DirectoryContentsChecksum(string directory)
+        private static string DirectoryContentsChecksum(string directory, bool recurse = true)
         {
             // assuming you want to include nested folders
-            var files = Directory.GetFiles(directory, "*.*", SearchOption.AllDirectories)
+            var files = Directory.GetFiles(directory, "*.*",
+                    recurse ? SearchOption.AllDirectories : SearchOption.TopDirectoryOnly)
                 .OrderBy(p => p).ToList();
 
             if (files.Count <= 0) return string.Empty;

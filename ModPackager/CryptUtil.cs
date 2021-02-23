@@ -24,14 +24,10 @@ namespace ModPackager
 
         public static string SHA1File(string filePath)
         {
-            using (var fs = new FileStream(filePath, FileMode.Open))
-            using (var bs = new BufferedStream(fs))
-            {
-                using (var sha1 = new SHA1Managed())
-                {
-                    return BitConverter.ToString(sha1.ComputeHash(bs)).Replace("-", "").ToLower();
-                }
-            }
+            using var fs = new FileStream(filePath, FileMode.Open);
+            using var bs = new BufferedStream(fs);
+            using var sha1 = new SHA1Managed();
+            return BitConverter.ToString(sha1.ComputeHash(bs)).Replace("-", "").ToLower();
         }
     }
 }
